@@ -176,6 +176,8 @@ datasets/*.zip
 datasets/*.tar.gz
 
 # 2. 模型权重 (非常大，绝对不能上传)
+*.pt
+*.pth
 models/weights/*.pt
 models/weights/*.pth
 models/ocr_models/*.pdparams
