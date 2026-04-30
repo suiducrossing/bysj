@@ -40,7 +40,8 @@ def train():
         data=dataset_yaml,
         epochs=10,          
         imgsz=640,          
-        batch=8,            
+        batch=8,
+        device='cuda',            
         workers=2,          
         project='runs',     
         name='train_yolo11_plate' 
