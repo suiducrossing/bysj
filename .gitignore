@@ -171,7 +171,7 @@ cython_debug/
 
 # 1. 数据集 (非常大，绝对不能上传)
 datasets/CCPD2019/
-datasets/plate_dataset/
+datasets/plate_dataset*/
 datasets/*.zip
 datasets/*.tar.gz
 
