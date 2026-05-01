@@ -1,0 +1,30 @@
+# ==========================================
+# 毕设总控配置 - 一个文件管所有
+# ==========================================
+
+# ── 数据集预设 ──────────────────────────────
+# 可选: base_only | standard | hard
+# 对应 ccpd_to_yolo.py 中的 DATASET_PRESETS
+dataset:
+  preset: standard
+
+# ── 训练参数（所有模型共用）─────────────────
+training:
+  epochs: 10
+  imgsz: 640
+  batch: 8
+  workers: 2
+  device: cuda          # cuda / cpu / 留空自动选择
+
+# ── 模型列表 ────────────────────────────────
+# enabled: false 的模型会被跳过
+models:
+  - name: yolov8
+    weight: yolov8n.pt
+    enabled: true
+  - name: yolov10
+    weight: yolov10n.pt
+    enabled: true
+  - name: yolov11
+    weight: yolo11n.pt
+    enabled: true

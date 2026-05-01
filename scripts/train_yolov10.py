@@ -26,12 +26,12 @@ def train():
         batch=8,
         device='cuda',
         workers=2,
-        project='runs/detect',
+        project='runs(1)',
         name='train_yolov10_plate'
     )
 
     print("✅ 训练完成！")
-    print("训练日志和最佳模型权重(best.pt)已保存在: runs/detect/train_yolov10_plate/weights/ 目录下")
+    print("训练日志和最佳模型权重(best.pt)已保存在: runs/detect/runs(1)/train_yolov10_plate/weights/ 目录下")
 
 
 if __name__ == '__main__':

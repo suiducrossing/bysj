@@ -43,7 +43,7 @@ def train():
         batch=8,
         device='cuda',            
         workers=2,          
-        project='runs',     
+        project='runs(1)',     
         name='train_yolo11_plate' 
     )
     

@@ -31,24 +31,29 @@ def _setup_chinese_font():
 
 # ── 模型配置 ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_PATH = os.path.join(PROJECT_ROOT, 'config.yaml')
 
-MODEL_CONFIGS = [
-    {
-        'label': 'YOLOv11',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolo11_plate(2)', 'weights', 'best.pt'),
-    },
-    {
-        'label': 'YOLOv8',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolov8_plate', 'weights', 'best.pt'),
-    },
-    {
-        'label': 'YOLOv10',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolov10_plate', 'weights', 'best.pt'),
-    },
-]
+# 读取总控配置
+with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+    _cfg = yaml.safe_load(f)
 
-DATASET_YAML = os.path.join(PROJECT_ROOT, 'datasets', 'plate_dataset', 'dataset.yaml')
-OUTPUT_CHART = os.path.join(PROJECT_ROOT, 'runs', 'comparison_chart.png')
+PRESET = _cfg['dataset']['preset']
+DATASET_YAML = os.path.join(PROJECT_ROOT, 'datasets', f'plate_dataset_{PRESET}', 'dataset.yaml')
+
+# 从 config.yaml 的模型列表中自动构建权重路径
+MODEL_CONFIGS = []
+for m in _cfg.get('models', []):
+    if not m.get('enabled', True):
+        continue
+    weight_path = os.path.join(
+        PROJECT_ROOT, 'runs', PRESET, f'train_{m["name"]}_plate', 'weights', 'best.pt'
+    )
+    MODEL_CONFIGS.append({
+        'label': m['name'].upper().replace('YOLOV', 'YOLOv'),
+        'weight': weight_path,
+    })
+
+OUTPUT_CHART = os.path.join(PROJECT_ROOT, 'runs', PRESET, 'comparison_chart.png')
 
 
 # ── 推理速度测量 ──────────────────────────────────────────────────────────────

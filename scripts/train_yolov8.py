@@ -26,7 +26,7 @@ def train():
         batch=8,
         device='cuda',
         workers=2,
-        project='runs/detect',
+        project='runs(1)',
         name='train_yolov8_plate'
     )
 
