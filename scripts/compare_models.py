@@ -2,6 +2,7 @@
 三模型对比评估脚本：YOLOv8 / YOLOv10 / YOLOv11
 在验证集上评估各模型的 mAP、精度、召回率和推理速度，并生成对比图表。
 """
+from __future__ import annotations
 import os
 import time
 import yaml
@@ -34,15 +35,15 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_CONFIGS = [
     {
         'label': 'YOLOv11',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'train_yolo11_plate(2)', 'weights', 'best.pt'),
+        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolo11_plate(2)', 'weights', 'best.pt'),
     },
     {
         'label': 'YOLOv8',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'train_yolov8_plate', 'weights', 'best.pt'),
+        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolov8_plate', 'weights', 'best.pt'),
     },
     {
         'label': 'YOLOv10',
-        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'train_yolov10_plate', 'weights', 'best.pt'),
+        'weight': os.path.join(PROJECT_ROOT, 'runs', 'detect', 'runs', 'train_yolov10_plate', 'weights', 'best.pt'),
     },
 ]
 
