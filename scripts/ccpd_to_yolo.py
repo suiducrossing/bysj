@@ -168,7 +168,7 @@ def process_dataset(
     yaml_content = f"""# CCPD 混合数据集 - {preset_name} 预设
 # 构成: {subset_desc}
 
-path: {os.path.abspath(dest_dir)}  # dataset root dir
+path: .  # dataset root dir (relative to this yaml file)
 train: images/train  # train images (relative to 'path')
 val: images/val      # val images (relative to 'path')
 test: images/test    # test images (optional)
