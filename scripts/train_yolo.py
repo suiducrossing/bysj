@@ -12,7 +12,7 @@ def train():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 数据集配置文件的绝对路径
-    dataset_yaml = os.path.join(project_root, 'datasets', 'plate_dataset', 'dataset.yaml')
+    dataset_yaml = os.path.join(project_root, 'datasets', 'plate_dataset_standard', 'dataset.yaml')
     
     if not os.path.exists(dataset_yaml):
         print(f"❌ 找不到数据集配置文件: {dataset_yaml}")

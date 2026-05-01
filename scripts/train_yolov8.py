@@ -6,7 +6,7 @@ def train():
     """YOLOv8 车牌检测模型训练脚本，用于与 YOLOv11 进行对比实验。"""
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dataset_yaml = os.path.join(project_root, 'datasets', 'plate_dataset', 'dataset.yaml')
+    dataset_yaml = os.path.join(project_root, 'datasets', 'plate_dataset_standard', 'dataset.yaml')
 
     if not os.path.exists(dataset_yaml):
         print(f"❌ 找不到数据集配置文件: {dataset_yaml}")
