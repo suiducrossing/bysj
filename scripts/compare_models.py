@@ -1,9 +1,13 @@
 """
 三模型对比评估脚本：YOLOv8 / YOLOv10 / YOLOv11
 在验证集上评估各模型的 mAP、精度、召回率和推理速度，并生成对比图表。
+支持分集评估（Base vs 困难样本），需要 val_split.json。
 """
 from __future__ import annotations
 import os
+import json
+import shutil
+import tempfile
 import time
 import yaml
 import numpy as np
@@ -25,7 +29,6 @@ def _setup_chinese_font():
         if font in available:
             matplotlib.rcParams['font.family'] = font
             return font
-    # 找不到中文字体时回退到英文标注
     return None
 
 
@@ -33,14 +36,13 @@ def _setup_chinese_font():
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, 'config.yaml')
 
-# 读取总控配置
 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
     _cfg = yaml.safe_load(f)
 
 PRESET = _cfg['dataset']['preset']
 DATASET_YAML = os.path.join(PROJECT_ROOT, 'datasets', f'plate_dataset_{PRESET}', 'dataset.yaml')
+VAL_SPLIT_JSON = os.path.join(PROJECT_ROOT, 'datasets', f'plate_dataset_{PRESET}', 'val_split.json')
 
-# 从 config.yaml 的模型列表中自动构建权重路径
 MODEL_CONFIGS = []
 for m in _cfg.get('models', []):
     if not m.get('enabled', True):
@@ -58,37 +60,28 @@ OUTPUT_CHART = os.path.join(PROJECT_ROOT, 'runs', PRESET, 'comparison_chart.png'
 
 # ── 推理速度测量 ──────────────────────────────────────────────────────────────
 def _measure_fps(model: YOLO, val_images: list, n_warmup: int = 5, n_measure: int = 50) -> float:
-    """在验证集图片上测量平均推理 FPS。"""
     images = val_images[:max(n_warmup + n_measure, len(val_images))]
     if not images:
         return 0.0
-
-    # 预热
     for img in images[:n_warmup]:
         model.predict(img, verbose=False)
-
     measure_imgs = images[n_warmup:n_warmup + n_measure]
     if not measure_imgs:
         measure_imgs = images[:n_measure]
-
     t0 = time.perf_counter()
     for img in measure_imgs:
         model.predict(img, verbose=False)
     elapsed = time.perf_counter() - t0
-
     return len(measure_imgs) / elapsed if elapsed > 0 else 0.0
 
 
 def _get_val_images(dataset_yaml: str, limit: int = 60) -> list:
-    """从 dataset.yaml 中读取验证集图片路径列表。"""
     with open(dataset_yaml, 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
-
     dataset_dir = os.path.dirname(dataset_yaml)
     val_path = cfg.get('val', '')
     if not os.path.isabs(val_path):
         val_path = os.path.join(dataset_dir, val_path)
-
     images = []
     if os.path.isdir(val_path):
         for fname in os.listdir(val_path):
@@ -97,9 +90,7 @@ def _get_val_images(dataset_yaml: str, limit: int = 60) -> list:
     return images[:limit]
 
 
-# ── 参数量统计 ────────────────────────────────────────────────────────────────
 def _count_params(model: YOLO) -> float:
-    """返回模型参数量（单位：百万 M）。"""
     try:
         total = sum(p.numel() for p in model.model.parameters())
         return total / 1e6
@@ -108,7 +99,7 @@ def _count_params(model: YOLO) -> float:
 
 
 # ── 单模型评估 ────────────────────────────────────────────────────────────────
-def _evaluate_model(config: dict, val_images: list) -> dict | None:
+def _evaluate_model(config: dict, val_images: list, data_yaml: str = None) -> dict | None:
     label = config['label']
     weight = config['weight']
 
@@ -119,8 +110,9 @@ def _evaluate_model(config: dict, val_images: list) -> dict | None:
     print(f"  加载 {label} 模型: {weight}")
     model = YOLO(weight)
 
+    data = data_yaml or DATASET_YAML
     print(f"  评估 {label} 验证集指标...")
-    metrics = model.val(data=DATASET_YAML, verbose=False)
+    metrics = model.val(data=data, verbose=False)
 
     map50     = float(metrics.box.map50)
     map50_95  = float(metrics.box.map)
@@ -142,7 +134,78 @@ def _evaluate_model(config: dict, val_images: list) -> dict | None:
     }
 
 
-# ── 打印对比表格 ──────────────────────────────────────────────────────────────
+# ── 分集评估 ──────────────────────────────────────────────────────────────────
+def _load_val_split():
+    """读取 val_split.json，返回 {filename: 'base'|'hard'}。"""
+    if not os.path.exists(VAL_SPLIT_JSON):
+        return None
+    with open(VAL_SPLIT_JSON, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _create_split_yamls(val_split: dict) -> tuple:
+    """创建 Base 和 Hard 的临时 data.yaml，返回 (base_yaml, hard_yaml, tmpdir)。"""
+    dataset_dir = os.path.dirname(DATASET_YAML)
+    val_dir = os.path.join(dataset_dir, 'images', 'val')
+    labels_dir = os.path.join(dataset_dir, 'labels', 'val')
+
+    tmpdir = tempfile.mkdtemp(prefix='bysj_split_')
+
+    splits = {'base': [], 'hard': []}
+    for fname, origin in val_split.items():
+        if origin in splits:
+            splits[origin].append(fname)
+
+    yaml_paths = {}
+    for subset_name, filelist in splits.items():
+        if not filelist:
+            print(f"  ⚠️  {subset_name} 子集没有图片，跳过")
+            yaml_paths[subset_name] = None
+            continue
+
+        # 创建临时目录和软链接
+        img_dir = os.path.join(tmpdir, f'{subset_name}_images')
+        lbl_dir = os.path.join(tmpdir, f'{subset_name}_labels')
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(lbl_dir, exist_ok=True)
+
+        for fname in filelist:
+            src_img = os.path.join(val_dir, fname)
+            src_lbl = os.path.join(labels_dir, fname.replace('.jpg', '.txt'))
+            if os.path.exists(src_img):
+                os.symlink(src_img, os.path.join(img_dir, fname))
+            if os.path.exists(src_lbl):
+                os.symlink(src_lbl, os.path.join(lbl_dir, fname.replace('.jpg', '.txt')))
+
+        # 生成临时 yaml
+        yaml_path = os.path.join(tmpdir, f'{subset_name}.yaml')
+        yaml_content = f"""path: {tmpdir}
+train: {subset_name}_images
+val: {subset_name}_images
+names:
+  0: license_plate
+"""
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            f.write(yaml_content.strip())
+        yaml_paths[subset_name] = yaml_path
+        print(f"  {subset_name}: {len(filelist)} 张")
+
+    return yaml_paths.get('base'), yaml_paths.get('hard'), tmpdir
+
+
+def _eval_split(model: YOLO, data_yaml: str, split_name: str) -> dict:
+    """在指定子集上评估模型。"""
+    print(f"    评估 {split_name} 子集...")
+    metrics = model.val(data=data_yaml, verbose=False)
+    return {
+        'map50':     float(metrics.box.map50),
+        'map50_95':  float(metrics.box.map),
+        'precision': float(metrics.box.mp),
+        'recall':    float(metrics.box.mr),
+    }
+
+
+# ── 打印表格 ──────────────────────────────────────────────────────────────────
 def _print_table(results: list[dict]):
     header = f"{'Model':<12} {'mAP@0.5':>10} {'mAP@0.5:0.95':>14} {'Precision':>11} {'Recall':>9} {'FPS':>8} {'参数量(M)':>10}"
     sep = '-' * len(header)
@@ -160,6 +223,49 @@ def _print_table(results: list[dict]):
             f"{r['params_m']:>10.2f}"
         )
     print(sep + '\n')
+
+
+def _print_split_table(split_results: dict, labels: list):
+    """打印分集对比表格。
+    split_results = {label: {'base': {...}, 'hard': {...}}}
+    """
+    if not split_results:
+        return
+
+    # 表头
+    header = (
+        f"{'Model':<10} "
+        f"{'Base mAP@.5':>12} {'Base mAP@.5:.95':>16} "
+        f"{'困难 mAP@.5':>12} {'困难 mAP@.5:.95':>16} "
+        f"{'maP降幅':>8}"
+    )
+    sep = '-' * len(header)
+    print('\n' + sep)
+    print('  分集评估（Base vs 困难样本）')
+    print(sep)
+    print(header)
+    print(sep)
+
+    for label in labels:
+        r = split_results.get(label)
+        if not r:
+            continue
+        base = r.get('base', {})
+        hard = r.get('hard', {})
+        b50 = base.get('map50', 0)
+        h50 = hard.get('map50', 0)
+        drop = (b50 - h50) * 100 if b50 > 0 else 0  # 降幅（百分点）
+
+        print(
+            f"{label:<10} "
+            f"{base.get('map50', 0):>12.4f} "
+            f"{base.get('map50_95', 0):>16.4f} "
+            f"{hard.get('map50', 0):>12.4f} "
+            f"{hard.get('map50_95', 0):>16.4f} "
+            f"{drop:>7.1f}%"
+        )
+    print(sep + '\n')
+    print("  maP降幅越小 → 模型对困难样本越鲁棒\n")
 
 
 # ── 生成对比柱状图 ────────────────────────────────────────────────────────────
@@ -181,7 +287,6 @@ def _plot_chart(results: list[dict], output_path: str, use_chinese: bool):
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle('三模型性能对比' if use_chinese else 'Model Performance Comparison', fontsize=14)
 
-    # 左图：mAP / Precision / Recall
     ax = axes[0]
     colors = ['#4C72B0', '#DD8452', '#55A868']
     for i, (r, color, offset) in enumerate(zip(results, colors, offsets)):
@@ -190,7 +295,6 @@ def _plot_chart(results: list[dict], output_path: str, use_chinese: bool):
         for bar, val in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
                     f'{val:.3f}', ha='center', va='bottom', fontsize=7)
-
     ax.set_xticks(x)
     ax.set_xticklabels([name for _, name in metrics_def])
     ax.set_ylim(0, 1.15)
@@ -199,30 +303,25 @@ def _plot_chart(results: list[dict], output_path: str, use_chinese: bool):
     ax.legend()
     ax.grid(axis='y', linestyle='--', alpha=0.5)
 
-    # 右图：FPS 和参数量（双 Y 轴）
     ax2 = axes[1]
     ax2_twin = ax2.twinx()
     x2 = np.arange(n_models)
-    fps_vals    = [r['fps']     for r in results]
-    param_vals  = [r['params_m'] for r in results]
-
+    fps_vals   = [r['fps']     for r in results]
+    param_vals = [r['params_m'] for r in results]
     b1 = ax2.bar(x2 - 0.2, fps_vals,   0.35, label='FPS',              color='#4C72B0', alpha=0.85)
     b2 = ax2_twin.bar(x2 + 0.2, param_vals, 0.35, label='参数量(M)' if use_chinese else 'Params(M)',
                       color='#DD8452', alpha=0.85)
-
     for bar, val in zip(b1, fps_vals):
         ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
                  f'{val:.1f}', ha='center', va='bottom', fontsize=8)
     for bar, val in zip(b2, param_vals):
         ax2_twin.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
                       f'{val:.2f}', ha='center', va='bottom', fontsize=8)
-
     ax2.set_xticks(x2)
     ax2.set_xticklabels(labels)
     ax2.set_ylabel('FPS')
     ax2_twin.set_ylabel('参数量 (M)' if use_chinese else 'Params (M)')
     ax2.set_title('推理速度与模型大小' if use_chinese else 'Speed & Model Size')
-
     lines1, labels1 = ax2.get_legend_handles_labels()
     lines2, labels2 = ax2_twin.get_legend_handles_labels()
     ax2.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
@@ -254,6 +353,7 @@ def main():
     val_images = _get_val_images(DATASET_YAML)
     print(f"  共找到 {len(val_images)} 张验证集图片（用于 FPS 测量）")
 
+    # ── 1. 整体评估 ──────────────────────────
     results = []
     for config in MODEL_CONFIGS:
         print(f"\n▶ 评估 {config['label']}...")
@@ -266,6 +366,39 @@ def main():
         return
 
     _print_table(results)
+
+    # ── 2. 分集评估（Base vs 困难）────────────
+    val_split = _load_val_split()
+    if val_split:
+        print("=" * 60)
+        print("  分集评估中...")
+        print("=" * 60)
+        base_yaml, hard_yaml, tmpdir = _create_split_yamls(val_split)
+
+        if base_yaml and hard_yaml:
+            split_results = {}
+            labels_order = []
+            for config in MODEL_CONFIGS:
+                if not os.path.exists(config['weight']):
+                    continue
+                label = config['label']
+                labels_order.append(label)
+                print(f"\n▶ 分集评估 {label}...")
+                model = YOLO(config['weight'])
+                br = _eval_split(model, base_yaml, 'Base')
+                hr = _eval_split(model, hard_yaml, '困难')
+                split_results[label] = {'base': br, 'hard': hr}
+
+            _print_split_table(split_results, labels_order)
+        else:
+            print("  ⚠️  无法创建分集数据，跳过")
+
+        # 清理临时文件
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    else:
+        print("\n⚠️  未找到 val_split.json，跳过分集评估")
+        print("  请先运行 python scripts/ccpd_to_yolo.py 生成新数据集")
+
     _plot_chart(results, OUTPUT_CHART, use_chinese)
     print("✅ 对比评估完成！")
 

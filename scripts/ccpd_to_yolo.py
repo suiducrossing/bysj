@@ -134,6 +134,10 @@ def process_dataset(
     fixed_img_width = 720
     fixed_img_height = 1160
 
+    # 记录验证集图片来源（用于分集评估）
+    import json
+    val_origin = {}  # filename -> "base" | "hard"
+
     for split_name, files in splits.items():
         print(f"\n正在处理 {split_name} 集 ({len(files)} 张)...")
         for subset_name, filename in tqdm(files):
@@ -162,6 +166,19 @@ def process_dataset(
             # 写入标签
             with open(dest_label_path, 'w') as f:
                 f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+
+            # 记录验证集来源
+            if split_name == 'val':
+                val_origin[filename] = "base" if subset_name == "ccpd_base" else "hard"
+
+    # 保存验证集分集信息
+    if val_origin:
+        split_path = os.path.join(dest_dir, 'val_split.json')
+        with open(split_path, 'w', encoding='utf-8') as f:
+            json.dump(val_origin, f, ensure_ascii=False)
+        n_base = sum(1 for v in val_origin.values() if v == "base")
+        n_hard = sum(1 for v in val_origin.values() if v == "hard")
+        print(f"\n  验证集分集: Base {n_base} 张 + 困难 {n_hard} 张 → val_split.json")
 
     # 生成 dataset.yaml
     subset_desc = " + ".join([f"{k}({v:.0%})" for k, v in ratios.items()])
