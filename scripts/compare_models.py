@@ -163,9 +163,10 @@ def _create_split_yamls(val_split: dict) -> tuple:
             yaml_paths[subset_name] = None
             continue
 
-        # 创建临时目录和软链接
-        img_dir = os.path.join(tmpdir, f'{subset_name}_images')
-        lbl_dir = os.path.join(tmpdir, f'{subset_name}_labels')
+        # 使用标准 YOLO 目录结构：subset/images/ 和 subset/labels/
+        subset_dir = os.path.join(tmpdir, subset_name)
+        img_dir = os.path.join(subset_dir, 'images')
+        lbl_dir = os.path.join(subset_dir, 'labels')
         os.makedirs(img_dir, exist_ok=True)
         os.makedirs(lbl_dir, exist_ok=True)
 
@@ -177,11 +178,11 @@ def _create_split_yamls(val_split: dict) -> tuple:
             if os.path.exists(src_lbl):
                 os.symlink(src_lbl, os.path.join(lbl_dir, fname.replace('.jpg', '.txt')))
 
-        # 生成临时 yaml
-        yaml_path = os.path.join(tmpdir, f'{subset_name}.yaml')
-        yaml_content = f"""path: {tmpdir}
-train: {subset_name}_images
-val: {subset_name}_images
+        # 生成临时 yaml，val: images → 标签自动找 labels/
+        yaml_path = os.path.join(subset_dir, 'dataset.yaml')
+        yaml_content = f"""path: {subset_dir}
+train: images
+val: images
 names:
   0: license_plate
 """
