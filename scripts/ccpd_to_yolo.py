@@ -112,6 +112,20 @@ def process_dataset(
 
     # 打乱顺序
     random.shuffle(selected_files)
+
+    # 过滤解析失败的文件（文件名格式不标准）
+    valid_files = []
+    skipped = 0
+    for item in selected_files:
+        subset_name, filename = item
+        if parse_ccpd_filename(filename) is not None:
+            valid_files.append(item)
+        else:
+            skipped += 1
+    if skipped > 0:
+        print(f"\n⚠️   跳过 {skipped} 张文件名格式异常的图片")
+
+    selected_files = valid_files
     total_files = len(selected_files)
     print(f"\n实际抽取图片总数: {total_files}")
 
