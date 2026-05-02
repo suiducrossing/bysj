@@ -5,6 +5,7 @@ from typing import List, Optional, Set
 
 import cv2
 import streamlit as st
+import yaml
 from PIL import Image
 
 # 确保项目根目录在 sys.path 中，使 core/ 可被导入
@@ -15,16 +16,31 @@ if _PROJECT_ROOT not in sys.path:
 from core.plate_recognizer import PlateRecognizer
 from ui_utils import pil_to_bgr, bgr_to_rgb, resize_for_display
 
-# ── 模型配置（相对路径，找不到时 graceful 降级） ──────────────────────────────
-_MODEL_OPTIONS = {
-    "YOLOv11": os.path.join("runs", "detect", "runs", "train_yolo11_plate(2)", "weights", "best.pt"),
-    "YOLOv8":  os.path.join("runs", "detect", "train_yolov8_plate", "weights", "best.pt"),
-    "YOLOv10": os.path.join("runs", "detect", "train_yolov10_plate", "weights", "best.pt"),
-}
+# ── 从 config.yaml 动态生成模型选项 ─────────────────────────────────────────
+def _load_model_options() -> dict:
+    """读取 config.yaml，返回 {显示名称: 权重绝对路径}。"""
+    config_path = os.path.join(_PROJECT_ROOT, 'config.yaml')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
+    preset = cfg['dataset']['preset']
+    options = {}
+    for m in cfg.get('models', []):
+        if not m.get('enabled', True):
+            continue
+        # 显示名称：yolov8 → YOLOv8，yolov11 → YOLOv11
+        display = m['name'].upper().replace('YOLOV', 'YOLOv')
+        weight_abs = os.path.join(
+            _PROJECT_ROOT, 'runs', preset,
+            f'train_{m["name"]}_plate', 'weights', 'best.pt'
+        )
+        options[display] = weight_abs
+    return options
+
+_MODEL_OPTIONS = _load_model_options()
 
 def _available_models() -> List[str]:
     return [name for name, path in _MODEL_OPTIONS.items()
-            if os.path.exists(os.path.join(_PROJECT_ROOT, path))]
+            if os.path.exists(path)]
 
 
 # ── 页面配置 ──────────────────────────────────────────────────────────────────
@@ -37,8 +53,7 @@ st.set_page_config(
 
 @st.cache_resource
 def load_recognizer(model_name: str) -> Optional[PlateRecognizer]:
-    weight_rel = _MODEL_OPTIONS.get(model_name, "")
-    weight_abs = os.path.join(_PROJECT_ROOT, weight_rel)
+    weight_abs = _MODEL_OPTIONS.get(model_name, "")
     if not os.path.exists(weight_abs):
         return None
     return PlateRecognizer(yolo_weight=weight_abs)
@@ -59,11 +74,12 @@ with st.sidebar:
                                value=0.5, step=0.05)
 
     st.divider()
-    st.caption("模型权重路径（相对项目根目录）")
+    st.caption("模型权重路径")
     for name, path in _MODEL_OPTIONS.items():
-        exists = os.path.exists(os.path.join(_PROJECT_ROOT, path))
+        exists = os.path.exists(path)
         icon = "✅" if exists else "❌"
-        st.caption(f"{icon} {name}: {path}")
+        rel = os.path.relpath(path, _PROJECT_ROOT)
+        st.caption(f"{icon} {name}: {rel}")
 
 
 # ── 主界面标题 ────────────────────────────────────────────────────────────────
