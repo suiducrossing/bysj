@@ -16,6 +16,20 @@ training:
   workers: 2
   device: cuda          # cuda / cpu / 留空自动选择
 
+# ── 数据增强参数 ─────────────────────────────
+# 注释掉 = 用 Ultralytics 默认值
+augmentation:
+  hsv_h: 0.015          # 色相偏移 (默认 0.015)
+  hsv_s: 0.9            # 饱和度 [0~1] 越大越灰 (默认 0.7)
+  hsv_v: 0.6            # 亮度 [0~1] 越大越暗 (默认 0.4)
+  degrees: 15           # 随机旋转角度 (默认 0)
+  shear: 5              # 剪切变形 (默认 0)
+  perspective: 0.0005   # 透视变换，模拟侧拍 (默认 0)
+  erasing: 0.3          # 随机擦除，模拟遮挡 (默认 0.4)
+  # fliplr: 0.5         # 水平翻转 (默认 0.5)
+  # mosaic: 1.0         # Mosaic 拼接 (默认 1.0)
+  # mixup: 0.0          # MixUp 混合 (默认 0)
+
 # ── 模型列表 ────────────────────────────────
 # enabled: false 的模型会被跳过
 models:

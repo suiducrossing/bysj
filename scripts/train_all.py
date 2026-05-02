@@ -50,6 +50,11 @@ def main():
           f"imgsz={train_cfg['imgsz']}, batch={train_cfg['batch']}, "
           f"device={train_cfg['device']}")
 
+    # 数据增强参数
+    aug_cfg = cfg.get('augmentation', {})
+    if aug_cfg:
+        print(f"🎨 数据增强: {', '.join(f'{k}={v}' for k, v in aug_cfg.items())}")
+
     print(f"\n📋 将要训练的模型:")
     for m in models:
         print(f"   ✅ {m['name']} ({m['weight']})")
@@ -82,6 +87,7 @@ def main():
             workers=train_cfg['workers'],
             project=project_dir,
             name=f'train_{model_name}_plate',
+            **aug_cfg,
         )
 
         print(f"✅ {model_name} 训练完成！")
